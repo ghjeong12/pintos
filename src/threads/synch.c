@@ -81,8 +81,6 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
   {
-  	//list_push_back (&sema->waiters, &thread_current ()->elem);
-
    	//Added by GJ
 		list_insert_ordered(& (sema->waiters), &thread_current() -> elem, prio_less_func, NULL);
 		thread_block ();
@@ -209,12 +207,24 @@ lock_init (struct lock *lock)
 void
 pri_donate(struct lock *lock)
 {
-	if(thread_current() -> priority > lock->holder->priority)
+  struct thread* cur = thread_current();
+	if(!thread_mlfqs)
 	{
-		if(lock->holder->donation_depth==0)
-			lock->holder->original_priority = lock->holder->priority;
-		lock->holder->priority = thread_current() -> priority;
-		lock->holder->donation_depth++;	
+		struct thread* target = lock->holder; 
+	
+		if(target != NULL)
+			cur->waiting_target_thread = target;
+		while(target != NULL)
+		{
+			if(target->priority < cur -> priority)
+			{
+				target->priority = cur->priority;	
+				cur = target;
+				target = cur->waiting_target_thread;
+			}
+		else
+			break;
+		}
 	}
 }
 
@@ -225,7 +235,6 @@ pri_restore(struct lock *lock)
 	
 	struct list_elem *e;
 	struct list *locks = &lock->holder->acquired_lock_list;
-//	printf("haha %d\n", list_size(locks));
 	for(e = list_begin(locks); e!= list_end(locks); e=list_next(e))
 	{
 		struct lock *l = list_entry(e, struct lock, elem);
@@ -260,49 +269,15 @@ lock_acquire (struct lock *lock)
 	enum intr_level old_level;
 	old_level = intr_disable();
 
-	struct thread *t = thread_current();
-
-	//if(lock->holder != NULL)
-	//{
-	//	pri_donate(lock);
-		/*enum intr_level old_level;
-		old_level= intr_disable();
-
-		int cur_pri = thread_get_priority();
-		if(cur_pri > lock->holder->priority)
-		{
-			lock->holder->saved_priority = lock->holder->priority;
-			lock->holder->priority = cur_pri;
-		}
-		intr_set_level(old_level);*/
-	//}
-	
-	struct thread* current = t;
-	if(!thread_mlfqs)
-	{
-		struct thread* target = lock->holder; 
-	
-		if(target != NULL)
-			current->waiting_target_thread = target;
-		while(target != NULL)
-		{
-			if(target->priority < current -> priority)
-			{
-				target->priority = current->priority;	
-				current = target;
-				target = current->waiting_target_thread;
-			}
-		else
-			break;
-		}
-	}
+	struct thread* cur = thread_current();
+  pri_donate(lock);
   sema_down (&lock->semaphore);
 	if(!thread_mlfqs)
 	{
-		t->waiting_target_thread = NULL;
-		list_push_back( &t->acquired_lock_list, &lock->elem);
+		cur->waiting_target_thread = NULL;
+		list_push_back( &cur->acquired_lock_list, &lock->elem);
 	}
-  lock->holder = thread_current ();
+  lock->holder = cur;
 	intr_set_level(old_level);
 
 }
@@ -337,9 +312,6 @@ lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
-//	enum intr_level old_level;
-//	old_level = intr_disable();
-//  list_size(&thread_current()->acquired_lock_list);
 	if(!thread_mlfqs)
 	{
 		list_remove(& lock->elem);
@@ -347,7 +319,6 @@ lock_release (struct lock *lock)
 	}
 	lock->holder = NULL;
   sema_up (&lock->semaphore);
-//	intr_set_level(old_level);
 }
 
 /* Returns true if the current thread holds LOCK, false
