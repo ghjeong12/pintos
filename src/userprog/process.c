@@ -20,6 +20,7 @@
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+struct thread* get_child_thread (tid_t child_tid, struct thread *t);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -29,6 +30,8 @@ tid_t
 process_execute (const char *file_name) 
 {
   char *fn_copy;
+  struct thread *child_thr;
+  tid_t tid_tmp;
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
@@ -40,9 +43,22 @@ process_execute (const char *file_name)
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  
+  child_thr = get_child_thread (tid, thread_current());
+  
+  sema_down (&child_thr->sema_for_wait);
+  if (child_thr->success_to_load)
+    tid_tmp = tid;
+  else
+  {
+    tid_tmp = -1;
+    list_remove (&child_thr->childelem);
+    sema_up (&child_thr->sema_for_kill);
+  }
+
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
-  return tid;
+  return tid_tmp;
 }
 
 /* A thread function that loads a user process and starts it
@@ -50,22 +66,103 @@ process_execute (const char *file_name)
 static void
 start_process (void *file_name_)
 {
+  int i;
   char *file_name = file_name_;
   struct intr_frame if_;
   bool success;
 
+  char *argv[100];
+  char *arg_addr[100];
+  void *argv_addr;
+  struct thread *cur = thread_current();
+
+  char* token;
+  char* save_ptr;
+  int arg_len;
+  int word_align;
+  int argc;
+
+  void* tmp;
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+
+  /* Parse file name and arguments [GJ] */
+  argc = 0;
+  for (token = strtok_r (file_name, " ", &save_ptr);
+      token != NULL && argc < 100; token = strtok_r (NULL, " ", &save_ptr)){
+    argv[argc++] = token;
+  }
+
   success = load (file_name, &if_.eip, &if_.esp);
+  cur->success_to_load = success;
+  sema_up(&cur->sema_for_wait);
+  strlcpy (thread_current()->process_name, file_name, 16);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
-  if (!success) 
+  if (!success)
+  {
+    if (cur->success_to_open){
+      file_allow_write (cur->open_file);
+      file_close (cur->open_file);
+    }
+    palloc_free_page (file_name);
+    //wait until they send exit code to the parent 
+    sema_down (&cur->sema_for_kill);
     thread_exit ();
+  }
+  
+  //BUILD STACK! 
+  else
+  {
+    for (i = argc-1; i >= 0; i--)
+    {
+      arg_len = strlen(argv[i]);
+      if_.esp = (void*)((char*)if_.esp - (arg_len + 1));
+      memcpy (if_.esp, (void*)argv[i], arg_len);
+      memset ((void*)((char*)if_.esp + arg_len), 0, 1);
+      arg_addr[i] = if_.esp;
+    }
+    argv[argc]=0;
+ 
+    word_align = ((int)if_.esp % 4);
+    
+    if(4-word_align)
+    {
+      if_.esp = (void*)((char*)if_.esp - (4-word_align));
+      memcpy (if_.esp, &argv[argc], (4-word_align));
+    
+    }
+    if_.esp = (void*)((char*)if_.esp - 4);
+    argv[argc]=0;
+    memcpy (if_.esp, &argv[argc], 4);
 
+    for (i = argc-1; i >= 0; i--)
+    {
+      if_.esp = (void*)((char*)if_.esp - 4);
+      memcpy (if_.esp, &arg_addr[i], 4);
+      if (i == 0)
+      {
+        //Pushing argv!
+        tmp = if_.esp;
+        if_.esp = (void*)((char*)if_.esp - 4);
+        memcpy (if_.esp, &tmp, 4);
+        
+      }
+    }
+    //Pushing argc
+    if_.esp = (void*)((char*)if_.esp - 4);
+    memcpy (if_.esp, &argc, 4);
+ 
+    //Pushing fake return address
+    if_.esp = (void*)((char*)if_.esp - 4);
+    memcpy (if_.esp, &argv[argc], 4);
+ 
+    palloc_free_page (file_name);
+  }
+ 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -86,9 +183,21 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child) 
 {
-  return -1;
+  struct thread *child_thr;
+  int exit_code = -1;
+
+  child_thr = get_child_thread (child, thread_current());
+
+  if (child_thr != NULL)
+  {
+    sema_down (&child_thr->sema_for_exit);
+    list_remove(&child_thr->childelem);
+    exit_code = child_thr->exit_code;
+    sema_up (&child_thr->sema_for_kill);
+  }
+  return exit_code;
 }
 
 /* Free the current process's resources. */
@@ -217,17 +326,22 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
-  if (t->pagedir == NULL) 
+  if (t->pagedir == NULL) {
     goto done;
+  }
   process_activate ();
 
   /* Open executable file. */
   file = filesys_open (file_name);
   if (file == NULL) 
     {
+      t->success_to_open = false;
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
+  t->success_to_open = true;
+  t->open_file = file;
+  file_deny_write (file);
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -312,7 +426,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+//  file_close (file); I disabled this line for deny writing file
   return success;
 }
 
@@ -462,4 +576,20 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+
+/* Added by GJ */
+struct thread*
+get_child_thread (tid_t child_tid, struct thread *t){
+  struct list_elem* iter;
+  
+  for (iter = list_begin (&t->children_list); iter != list_end (&t->children_list);
+      iter = list_next(iter)){
+    if (((struct thread*)list_entry(iter, struct thread, childelem))->tid == child_tid)
+      return (struct thread*)list_entry (iter, struct thread, childelem);
+  }
+
+  // If there is no child with such id
+  return NULL;
 }

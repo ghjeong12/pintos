@@ -1,6 +1,7 @@
 #include <syscall.h>
 #include "../syscall-nr.h"
 
+
 /* Invokes syscall NUMBER, passing no arguments, and returns the
    return value as an `int'. */
 #define syscall0(NUMBER)                                        \
@@ -20,7 +21,7 @@
         ({                                                               \
           int retval;                                                    \
           asm volatile                                                   \
-            ("pushl %[arg0]; pushl %[number]; int $0x30; addl $8, %%esp" \
+            ("mov %[arg0],%%eax;push %%eax; pushl %[number]; int $0x30; addl $8, %%esp" \
                : "=a" (retval)                                           \
                : [number] "i" (NUMBER),                                  \
                  [arg0] "g" (ARG0)                                       \
@@ -34,7 +35,8 @@
         ({                                                      \
           int retval;                                           \
           asm volatile                                          \
-            ("pushl %[arg1]; pushl %[arg0]; "                   \
+            ("mov %[arg1],%%eax;mov %[arg0],%%ecx;"		\
+	     "pushl %%eax; pushl %%ecx; "                       \
              "pushl %[number]; int $0x30; addl $12, %%esp"      \
                : "=a" (retval)                                  \
                : [number] "i" (NUMBER),                         \
@@ -50,7 +52,8 @@
         ({                                                      \
           int retval;                                           \
           asm volatile                                          \
-            ("pushl %[arg2]; pushl %[arg1]; pushl %[arg0]; "    \
+            ("mov %[arg2],%%eax; mov %[arg1],%%ecx; mov %[arg0],%%edx;" \
+	     "pushl %%eax; pushl %%ecx; pushl %%edx; "    \
              "pushl %[number]; int $0x30; addl $16, %%esp"      \
                : "=a" (retval)                                  \
                : [number] "i" (NUMBER),                         \
@@ -182,3 +185,4 @@ inumber (int fd)
 {
   return syscall1 (SYS_INUMBER, fd);
 }
+

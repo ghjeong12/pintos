@@ -16,9 +16,6 @@
 #if TIMER_FREQ > 1000
 #error TIMER_FREQ <= 1000 recommended
 #endif
-/* Added by GJ */
-static struct list sleep_threads;
-static bool sleep_less_func(const struct list_elem* fst, const struct list_elem* snd, void* aux);
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
@@ -38,9 +35,6 @@ static void real_time_delay (int64_t num, int32_t denom);
 void
 timer_init (void) 
 {
-	/* Added by GJ */
-	list_init(&sleep_threads);
-
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -92,7 +86,7 @@ timer_elapsed (int64_t then)
 
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
-/*void
+void
 timer_sleep (int64_t ticks) 
 {
   int64_t start = timer_ticks ();
@@ -100,75 +94,6 @@ timer_sleep (int64_t ticks)
   ASSERT (intr_get_level () == INTR_ON);
   while (timer_elapsed (start) < ticks) 
     thread_yield ();
-}*/
-
-/* Added by GJ */
-static bool
-sleep_less_func(const struct list_elem* fst, const struct list_elem* snd, void* aux UNUSED)
-{
-	const struct thread* f = list_entry(fst, struct thread, elem);
-	const struct thread* s = list_entry(snd, struct thread, elem);
-
-	if (f->time_wake < s->time_wake)
-		return true;
-	
-	else if(f->time_wake == s->time_wake)
-	{
-		if(f->priority > s-> priority)
-			return true;
-		else
-			return false;
-	}
-	
-	else
-		return false;
-}
-
-void
-timer_sleep (int64_t ticks) 
-{
-  int64_t start = timer_ticks ();
-	int64_t end = timer_ticks () + ticks;	
-	enum intr_level old_level;
-	struct thread *trd = thread_current ();
-	
-  ASSERT (intr_get_level () == INTR_ON);
-  old_level = intr_disable();
-	
-	trd->time_wake = end;
-	
-	list_insert_ordered(&sleep_threads, &trd->elem, sleep_less_func, NULL);
-	thread_block();
-	
-	intr_set_level(old_level);
-}
-
-/* Added by GJ */
-void
-timer_wake (void)
-{
-	struct thread* trd;
-
-	enum intr_level old_level;
-	old_level = intr_disable();
-
-	while(!list_empty(&sleep_threads))
-	{
-		trd = list_entry(list_front (&sleep_threads), struct thread, elem);
-
-		if (ticks >= trd->time_wake)
-		{
-			list_pop_front (&sleep_threads);
-			thread_unblock(trd);
-			//if(trd->priority > thread_current()->priority)
-			//	thread_yield();
-
-		}
-		else
-			break;
-	}
-
-	intr_set_level(old_level);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -246,7 +171,6 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
-	timer_wake(); //Added by GJ
   thread_tick ();
 }
 

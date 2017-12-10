@@ -4,9 +4,6 @@
 #include <list.h>
 #include <stdbool.h>
 
-//bool //Added by GJ
-//prio_less_func(const struct list_elem* fst, const struct list_elem* snd, void* aux)
-//{};
 /* A counting semaphore. */
 struct semaphore 
   {
@@ -25,8 +22,8 @@ struct lock
   {
     struct thread *holder;      /* Thread holding lock (for debugging). */
     struct semaphore semaphore; /* Binary semaphore controlling access. */
-		struct list_elem elem;  //Added by GJ
-	};
+    struct list_elem elem;
+  };
 
 void lock_init (struct lock *);
 void lock_acquire (struct lock *);
@@ -44,6 +41,17 @@ void cond_init (struct condition *);
 void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
+
+bool semaphore_elem_thread_priority_less (
+    const struct list_elem *a,
+    const struct list_elem *b,
+    void *aux);
+bool lock_priority_less (
+    const struct list_elem *a,
+    const struct list_elem *b,
+    void *aux);
+
+#define lock_priority(LOCK) list_entry(list_begin(&LOCK->semaphore.waiters), struct thread, elem)->priority
 
 /* Optimization barrier.
 

@@ -13,14 +13,8 @@ void timer_calibrate (void);
 int64_t timer_ticks (void);
 int64_t timer_elapsed (int64_t);
 
-/* Added by GJ */
-
 /* Sleep and yield the CPU to other threads. */
 void timer_sleep (int64_t ticks);
-
-/* Added by GJ */
-void timer_wake(void);
-
 void timer_msleep (int64_t milliseconds);
 void timer_usleep (int64_t microseconds);
 void timer_nsleep (int64_t nanoseconds);

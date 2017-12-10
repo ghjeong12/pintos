@@ -4,6 +4,8 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
+#include "filesys/file.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -24,6 +26,7 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+#define FD_MAX 64                       /* For project 2 */
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -87,22 +90,14 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
+    int orig_priority;
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
-		struct list_elem lockelem;					/* Added by GJ */
-		struct list acquired_lock_list;			/* Added by GJ */
-
-		/* Added by GJ	*/
-		int64_t time_wake;
-		int original_priority;
-		int donation_depth;
-		struct thread* waiting_target_thread;
-		int nice;
-		int recent_cpu;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
-
+    struct list_elem sleepelem; 
+    struct list_elem childelem;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -110,13 +105,31 @@ struct thread
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+    int64_t waketime;                   /* time to wake */
+
+
+    int fixed_recent_cpu; //For project #1, advanced shceduling
+    int nice;
+
+    int exit_code; //For project #2
+    bool end;
+    struct list children_list;
+    struct semaphore sema_for_wait;
+    struct semaphore sema_for_exit;
+    struct semaphore sema_for_kill;
+   
+    bool success_to_load;
+    bool success_to_open;
+    char process_name[16];
+    struct file *fd_list[FD_MAX];
+    int num_files; 
+    struct file *open_file;
   };
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
-int load_avg; //Added by GJ
 
 void thread_init (void);
 void thread_start (void);
@@ -129,6 +142,7 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
+void thread_sleep (int64_t waketime);
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);
@@ -149,4 +163,24 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+bool thread_waketime_less (const struct list_elem *a,
+		    const struct list_elem *b, void *aux);
+bool thread_priority_more (const struct list_elem *a,
+		    const struct list_elem *b, void *aux);
+
+void thread_donate_priority(struct thread *thread, const int new_priority);
+
+int conv2fixed (int n);
+int floor2int (int x);
+int round2int (int x);
+int add_x_y (int x, int y);
+int sub_x_y (int x, int y);
+int add_x_n (int x, int n);
+int sub_x_n (int x, int n);
+int mul_x_y (int x, int y);
+int mul_x_n (int x, int n);
+int div_x_y (int x, int y);
+int div_x_n (int x, int n);
+int get_test_readys (void);
+bool is_thread_mlfqs (void);
 #endif /* threads/thread.h */
