@@ -45,7 +45,10 @@ process_execute (const char *file_name)
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   
   child_thr = get_child_thread (tid, thread_current());
-  
+  /* Added for project 4 */
+  if(thread_current()->cur_dir != NULL)
+    child_thr->cur_dir = dir_reopen(thread_current()->cur_dir);
+
   sema_down (&child_thr->sema_for_wait);
   if (child_thr->success_to_load)
     tid_tmp = tid;

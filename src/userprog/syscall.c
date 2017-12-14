@@ -13,6 +13,10 @@
 #include "devices/shutdown.h"
 #include "threads/vaddr.h"
 
+#include "filesys/inode.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
+
 #define valid_fd(fd, f, res) if(fd < 0 || fd >= FD_MAX) {f->eax = res; break;}
 static void syscall_handler (struct intr_frame *f);
 
@@ -29,6 +33,8 @@ static unsigned tell (int fd);
 
 void valid_address_check(void* addr);
 void valid_stack_check(struct intr_frame* intr_f, int num);
+
+bool mkdir(char* dir_name);
 //void valid_fd(struct intr_frame* f, int res, int fd); 
 
 /*
@@ -55,7 +61,7 @@ syscall_handler (struct intr_frame *f)
   int pid;
   int exit_code;
   int fd;
-  
+  char* dir_name; 
   switch(syscall_type)
   {
   case SYS_HALT:
@@ -145,9 +151,18 @@ syscall_handler (struct intr_frame *f)
       thread_current()->fd_list[fd]=NULL;
     }
     break;
-  }
+  // ADDED FOR PROJECT 4
+  case SYS_MKDIR:
+    dir_name = (char*) *((int*)f->esp+1);
+    f->eax = filesys_create(true, dir_name, 0);
+    break;
+  
+  case SYS_CHDIR:
+    dir_name = (char*) *((int*)f->esp+1);
+    f->eax = filesys_cd(dir_name);
+    break;
+  } // END OF SWITCH
 }
-
 void
 exit (int exit_code_)
 {
@@ -194,7 +209,7 @@ create (void *file_name, unsigned initial_size)
   bool success;
   if(file_name == NULL)
     exit(-1);
-  success = filesys_create ((char*)file_name, initial_size);
+  success = filesys_create (false, (char*)file_name, initial_size);
   return success;
 }
 

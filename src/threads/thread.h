@@ -124,6 +124,8 @@ struct thread
     struct file *fd_list[FD_MAX];
     int num_files; 
     struct file *open_file;
+
+    struct dir* cur_dir;//For project #4
   };
 
 /* If false (default), use round-robin scheduler.

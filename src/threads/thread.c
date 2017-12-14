@@ -218,7 +218,10 @@ thread_create (const char *name, int priority,
 
   /* For Project #2 */
   list_push_back (&thread_current()->children_list, &t->childelem);
-  
+ 
+  /* For Project #4 */
+  //t->cur_dir = dir_open_root();
+
   /* Prepare thread for first run by initializing its stack.
      Do this atomically so intermediate values for the 'stack' 
      member cannot be observed. */
