@@ -35,6 +35,7 @@ void valid_address_check(void* addr);
 void valid_stack_check(struct intr_frame* intr_f, int num);
 
 bool mkdir(char* dir_name);
+struct lock dir_lock;
 //void valid_fd(struct intr_frame* f, int res, int fd); 
 
 /*
@@ -52,6 +53,7 @@ void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init(&dir_lock);
 }
 
 static void
@@ -148,19 +150,60 @@ syscall_handler (struct intr_frame *f)
     fd = *((int*)f->esp+1);
     if (thread_current()->fd_list[fd] != NULL){
       file_close (thread_current()->fd_list[fd]);
+      if(file_isdir(thread_current()->fd_list[fd]))
+        dir_close(dir_open(file_get_inode(thread_current()->fd_list[fd])));
       thread_current()->fd_list[fd]=NULL;
     }
     break;
   // ADDED FOR PROJECT 4
   case SYS_MKDIR:
     dir_name = (char*) *((int*)f->esp+1);
+    lock_acquire(&dir_lock);
     f->eax = filesys_create(true, dir_name, 0);
+    lock_release(&dir_lock);
     break;
   
   case SYS_CHDIR:
     dir_name = (char*) *((int*)f->esp+1);
     f->eax = filesys_cd(dir_name);
     break;
+ 
+  case SYS_READDIR:
+    fd = *((int*)f->esp+1);
+    dir_name = (char*) *((int*)f->esp+2);
+    struct inode* inode = file_get_inode(thread_current()->fd_list[fd]);
+    if(inode == NULL)
+      f->eax = false;
+    else
+    {
+      if(file_isdir(thread_current()->fd_list[fd]))
+      {
+        f->eax = dir_readdir(dir_open(inode) , dir_name);
+      }
+      else
+        f->eax = false;
+    }
+    break;
+
+  case SYS_ISDIR:
+    fd = *((int*)f->esp+1);
+    if (thread_current()->fd_list[fd] != NULL){
+      f->eax = file_isdir(thread_current()->fd_list[fd]);
+    }
+    else
+      f->eax = false;
+    break;
+  case SYS_INUMBER:
+    fd = *((int*)f->esp+1);
+    if (thread_current()->fd_list[fd] != NULL){
+      f->eax = file_inumber(thread_current()->fd_list[fd]);
+    }
+    else
+      f->eax = -1;
+    break;
+
+
+
   } // END OF SWITCH
 }
 void
@@ -290,6 +333,10 @@ write (int fd, void *buffer, unsigned size)
       return -1;
     }
     else{
+      if(get_inode(cur->fd_list[fd])->data.is_dir)
+        return -1;
+      //if(cur->fd_list[fd]->inode)
+      //  return -1;
       return file_write (cur->fd_list[fd], buffer, size); 
     }
   }

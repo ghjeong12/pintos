@@ -49,19 +49,19 @@ filesys_cd (const char* name)
   char* name_cpy = (char*) malloc ( (strlen(name)+1) * sizeof(char));
   strlcpy(name_cpy, name, strlen(name) + 1);
    
-  // TODO: relative path, cwd
+  /* RELATIVE DIRECTORY */
   struct dir *curr = dir_open_root();
+  //if(thread_current() -> cur_dir != NULL)
+  //  curr = thread_current()->cur_dir;
   char *token_;
   char* rest_str;
   for (token_ = strtok_r(name_cpy, "/", &rest_str); token_ != NULL; token_ = strtok_r(NULL, "/", &rest_str))
   {
     struct inode *dir_inode = NULL;
-
     if(! dir_lookup(curr, token_, &dir_inode)) {
       dir_close(curr);
       return NULL;
     }
-             
     struct dir *next = dir_open(dir_inode);
     if(next == NULL) {
       dir_close(curr);
@@ -82,7 +82,6 @@ filesys_cd (const char* name)
     dir_close(thread_current() -> cur_dir);
   
   thread_current()-> cur_dir = new_dir;
-  
   return true;
 }
 /* Creates a file named NAME with the given INITIAL_SIZE.
@@ -127,7 +126,7 @@ filesys_create (bool is_dir, const char *name, off_t initial_size)
          
   if(dir_str) 
     *dir_str = '\0';
-  memcpy (file_name, last_token, sizeof(char) * (strlen(last_token) + 1));
+  memcpy (file_name, last_token, (strlen(last_token) + 1));
   free (name_cpy);
 // -----------
   struct dir *dir;
@@ -221,9 +220,8 @@ filesys_create (bool is_dir, const char *name, off_t initial_size)
       free_map_release (inode_sector, 1);
     
     struct inode* inode;
-    if(!dir_lookup(dir, file_name, &inode))
+    if(is_dir && dir_lookup(dir, file_name, &inode))
     {
-      //printf("%s is not created!\n", file_name);
     }
     
     dir_close (dir);
@@ -231,17 +229,7 @@ filesys_create (bool is_dir, const char *name, off_t initial_size)
           ;
   }
 
- /* 
-  struct dir *dir = dir_open_root ();
-  bool success = (dir != NULL
-                  && free_map_allocate (1, &inode_sector)
-                  && inode_create (false,inode_sector, initial_size)
-                  && dir_add (dir, name, inode_sector));
-  if (!success && inode_sector != 0) 
-    free_map_release (inode_sector, 1);
-  dir_close (dir);
-*/
-  return success;
+   return success;
 }
 
 /* Opens the file with the given NAME.
@@ -258,7 +246,7 @@ filesys_open (const char *name)
   char *name_cpy = (char*) malloc( sizeof(char) * (strlen(name) + 1) );
   memcpy (name_cpy, name, sizeof(char) * (strlen(name) + 1));
   struct dir *curr = dir_open_root();
-
+  dir = curr;
   if( (strlen(name) != 0) && (name[0] == '/') )   //ABSOLUTE PATH
   {
     char *token_;
@@ -266,24 +254,24 @@ filesys_open (const char *name)
     for (token_ = strtok_r(name_cpy, "/", &rest_str); token_ != NULL; token_ = strtok_r(NULL, "/", &rest_str))
     {
       /* this should be last filename */
-    if(strlen(rest_str) == 0)
-    {
-      //printf("this is the last token\n");
-      break;
-    }
-    struct inode *inode = NULL;
-    if(! dir_lookup(curr, token_, &inode)) {
-      dir_close(curr);
-      return NULL; // such directory not exist
-    }
+      if(strlen(rest_str) == 0)
+      {
+        //printf("this is the last token\n");
+        break;
+      }
+      struct inode *inode = NULL;
+      if(! dir_lookup(curr, token_, &inode)) {
+        dir_close(curr);
+        return NULL; // such directory not exist
+      }
              
-    struct dir *next = dir_open(inode);
-    if(next == NULL) {
+      struct dir *next = dir_open(inode);
+      if(next == NULL) {
+        dir_close(curr);
+        return NULL;
+      }
       dir_close(curr);
-      return NULL;
-    }
-    dir_close(curr);
-    curr = next;
+      curr = next;
     }
     //printf("filename : %s\,", file_name);
     dir = curr;
